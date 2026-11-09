@@ -119,7 +119,7 @@ android {
 |------|----|
 | `compileSdkVersion` | 36 |
 | `targetSdkVersion` | 36 |
-| `minSdkVersion` | 21 |
+| `minSdkVersion` | **21（锁死）** |
 
 ```gradle
 android {
@@ -130,6 +130,8 @@ android {
     }
 }
 ```
+
+- **`minSdkVersion` 必须锁死在 21，不得升级到 24 或更高**。`minSdk >= 23` 时 AGP/打包链路默认不再压缩 `.so`（按未压缩页面对齐存放），会导致 APK 体积接近翻倍。升级 Gradle/AGP 时若发现某处把 minSdk 提到 24，一律改回 21。
 
 ## 7. nonTransitiveRClass 说明
 
