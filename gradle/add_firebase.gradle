@@ -7,6 +7,9 @@
  * ---------------------------------------------------------------------------
  * - 作用：采集 C/C++、.so 等 native 崩溃，并配合符号上传还原堆栈。
  * - 体积：每个 ABI 大约多 0.8~2MB；纯 Java/Kotlin 应用一般不需要。
+ * - minSdk：firebase-crashlytics-ndk 声明 minSdk 24。若 app 仍是 21，需在
+ *   AndroidManifest 的 uses-sdk tools:overrideLibrary 中加入
+ *   com.google.firebase.crashlytics.ndk（或把 minSdk 提到 24）。
  * - 默认关闭。开启后会：
  *   1) 增加 implementation 'firebase-crashlytics-ndk'
  *   2) 对 release 打开 nativeSymbolUploadEnabled（上传 native 符号）
