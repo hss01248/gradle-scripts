@@ -30,7 +30,7 @@ Task Progress:
 - [ ] 2. 升级 AGP 到 8.9.1
 - [ ] 3. apply 远程 gradle8-compact.gradle
 - [ ] 4. 调整 gradle.properties
-- [ ] 5. 补齐 namespace / 清理 buildToolsVersion / 统一 SDK（minSdk 锁 21）
+- [ ] 5. 补齐 namespace / 清理 buildToolsVersion / 统一 SDK（minSdk 锁 21；Firebase 等用 overrideLibrary）
 - [ ] 6. 处理 targetSdk 34/35/36 运行时兼容（Insets / Back / 权限等）
 - [ ] 7. 同步并修复编译错误
 ```
@@ -169,6 +169,53 @@ android {
 
 - **`minSdkVersion` 必须锁死在 21，不得升级到 24 或更高**。`minSdk >= 23` 时 AGP/打包链路默认不再压缩 `.so`（按未压缩页面对齐存放），会导致 APK 体积接近翻倍。升级 Gradle/AGP 时若发现某处把 minSdk 提到 24，一律改回 21。
 
+### 6.1 minSdk 锁 21 时：Firebase / GMS 用 `tools:overrideLibrary`
+
+新版 Firebase（BoM 35.x / analytics 24 / crashlytics 21 / perf 23 等）及其传递依赖常声明 `minSdk 23/24`，与项目 `minSdk 21` 冲突时 Manifest merger 会失败。
+
+- **不要**因此抬高 `minSdkVersion`。
+- **做法**：在相关 application / library 的 `AndroidManifest.xml` 里用 `tools:overrideLibrary` 强制放行；编译报哪个包就往列表里加，持续编译直到通过。
+- 升级后若仍用默认 JDK 11，`firebase-crashlytics-gradle:3.x` 会要求 JVM 17——按 **1.3 JDK 17** 处理，与 overrideLibrary 无关。
+- 若远程 apply 了 `add_firebase.gradle` 且打开 `firebase_ndk=true`（会拉 `firebase-crashlytics-ndk`，声明 minSdk 24），必须额外 override `com.google.firebase.crashlytics.ndk`，否则 Manifest merger 失败。
+
+已知需 override 的包（minSdk > 21，来自 Firebase 官方最新库及传递依赖；可直接整段粘贴，再按报错追加）：
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    ...>
+    <uses-sdk tools:overrideLibrary="
+    com.google.firebase,com.google.firebase.abt,com.google.firebase.components,
+    com.google.firebase.crashlytics,com.google.firebase.crashlytics.ndk,com.google.firebase.datatransport,
+    com.google.firebase.encoders.json,com.google.firebase.firebase_analytics,
+    com.google.firebase.installations,com.google.firebase.installations.interop,
+    com.google.firebase.measurement,com.google.firebase.measurement_impl,
+    com.google.firebase.messaging,com.google.firebase.perf,
+    com.google.firebase.remoteconfig,com.google.firebase.remoteconfiginterop,
+    com.google.firebase.sessions,
+    com.google.android.gms.measurement.api,com.google.android.gms.measurement.sdk,
+    com.google.android.gms.measurement.sdk.api,com.google.android.gms.measurement_base,
+    com.google.android.gms.common,com.google.android.gms.tasks,
+    com.google.android.datatransport,com.google.android.datatransport.backend.cct,
+    com.google.android.datatransport.runtime"/>
+</manifest>
+```
+
+| 类别 | package |
+|------|---------|
+| Firebase | `com.google.firebase`、`abt`、`components`、`crashlytics`、`crashlytics.ndk`（仅 `firebase_ndk=true` 时必需）、`datatransport`、`encoders.json`、`firebase_analytics`、`installations`、`installations.interop`、`measurement`、`measurement_impl`、`messaging`、`perf`、`remoteconfig`、`remoteconfiginterop`、`sessions` |
+| GMS Measurement / 基础 | `com.google.android.gms.measurement.api`、`measurement.sdk`、`measurement.sdk.api`、`measurement_base`、`common`、`tasks` |
+| Data Transport | `com.google.android.datatransport`、`datatransport.backend.cct`、`datatransport.runtime` |
+
+报错示例：
+
+```
+uses-sdk:minSdkVersion 21 cannot be smaller than version 24 declared in library [...]
+Suggestion: ... or use tools:overrideLibrary="com.google.firebase.perf"
+```
+
+把 Suggestion 里的 package 追加进现有 `overrideLibrary` 列表即可（逗号分隔，可多行）。
+
 ## 7. nonTransitiveRClass 说明
 
 - **现象**：Gradle7 能编过，AGP8 报 `cannot find symbol: variable id / location: class R`
@@ -263,4 +310,4 @@ ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
 
 真机/模拟器建议在 **API 35、36** 上回归：启动页遮挡、系统返回、WebView 返回、通知、相册、前台服务。
 
-若失败，优先检查：namespace 是否齐全、是否已 apply 远程兼容脚本、`gradle.properties` 三项 R/R8 开关是否到位、Manifest Back/Insets 兼容是否加上。
+若失败，优先检查：namespace 是否齐全、是否已 apply 远程兼容脚本、`gradle.properties` 三项 R/R8 开关是否到位、Manifest Back/Insets 兼容是否加上、Firebase/GMS minSdk 冲突是否已按 **6.1** 加 `overrideLibrary`、构建是否在 JDK 17 上跑。
