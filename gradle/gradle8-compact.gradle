@@ -1,0 +1,109 @@
+/**
+ * Gradle 8 / AGP 8+ 兼容开关集中配置。
+ * 在根 build.gradle 中：apply from: 'gradle8-compact.gradle'
+ *
+ * - buildConfig：AGP 8 默认关闭，统一开启
+ * - viewBinding：统一开启
+ * - appcompat：application / library 统一引用
+ * - Java/Kotlin 17：与 AGP 8.9.1 / JDK 17 对齐
+ * - application 模块统一引用 multidex
+ * - application 模块统一排除冲突依赖（AGP8 checkDuplicateClasses 更严格）
+ * - minify 时自动附加 AGP8 R8 missing-class dontwarn 规则
+ */
+subprojects { subproject ->
+    subproject.pluginManager.withPlugin('com.android.application') {
+        applyAgp8Compat(subproject)
+        applyAppMultidex(subproject)
+        applyAppDuplicateExcludes(subproject)
+        applyR8MissingClassRules(subproject)
+    }
+    subproject.pluginManager.withPlugin('com.android.library') {
+        applyAgp8Compat(subproject)
+    }
+}
+
+static void applyAgp8Compat(Project project) {
+    project.android {
+        buildFeatures {
+            buildConfig true
+            viewBinding true
+        }
+        compileOptions {
+            sourceCompatibility JavaVersion.VERSION_17
+            targetCompatibility JavaVersion.VERSION_17
+        }
+        // AGP 8 对 Java resource 冲突默认失败；统一 pickFirst 常见 META-INF
+        packaging {
+            resources {
+                pickFirsts += [
+                        'META-INF/DEPENDENCIES',
+                        'META-INF/*.kotlin_module',
+                        'META-INF/INDEX.LIST',
+                        'META-INF/io.netty.versions.properties',
+                ]
+                excludes += [
+                        'META-INF/LICENSE',
+                        'META-INF/LICENSE.txt',
+                        'META-INF/NOTICE',
+                        'META-INF/NOTICE.txt',
+                ]
+            }
+        }
+    }
+    project.plugins.withId('org.jetbrains.kotlin.android') {
+        project.android {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+    project.plugins.withId('kotlin-android') {
+        project.android {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+    project.dependencies {
+        implementation 'androidx.appcompat:appcompat:1.2.0'
+    }
+    println("[gradle8-compact] enable buildConfig + viewBinding + appcompat + Java17 for :${project.name}")
+}
+
+/** application 模块统一引用 multidex */
+static void applyAppMultidex(Project project) {
+    project.dependencies {
+        implementation 'androidx.multidex:multidex:2.0.1'
+    }
+    println("[gradle8-compact] add multidex for :${project.name}")
+}
+
+/**
+ * AGP 8 对 duplicate class 直接失败。工程约定保留 androidx 版大图控件和 Toaster，
+ * 排除旧版 support 包与 ToastUtils。
+ */
+static void applyAppDuplicateExcludes(Project project) {
+    project.configurations.configureEach { configuration ->
+        configuration.exclude group: 'com.davemorrissey.labs', module: 'subsampling-scale-image-view'
+        configuration.exclude group: 'com.github.getActivity', module: 'ToastUtils'
+    }
+    println("[gradle8-compact] exclude duplicate deps for :${project.name}")
+}
+
+/**
+ * AGP 8 R8 默认对缺失引用类直接失败；demo/minify 场景附加共享 dontwarn。
+ */
+static void applyR8MissingClassRules(Project project) {
+    def rules = project.rootProject.file('gradle8-r8-dontwarn.pro')
+    if (!rules.exists()) {
+        return
+    }
+    project.afterEvaluate {
+        project.android.buildTypes.configureEach { buildType ->
+            if (buildType.minifyEnabled) {
+                buildType.proguardFiles(rules)
+                println("[gradle8-compact] add R8 dontwarn for :${project.name} ${buildType.name}")
+            }
+        }
+    }
+}
